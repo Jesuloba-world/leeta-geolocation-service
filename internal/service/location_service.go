@@ -2,10 +2,8 @@ package service
 
 import (
 	"log"
-	"math"
 
 	"github.com/jesuloba-world/leeta-task/internal/domain"
-	"github.com/jesuloba-world/leeta-task/pkg/geospatial"
 )
 
 type LocationService struct {
@@ -47,6 +45,10 @@ func (s *LocationService) GetLocation(name string) (*domain.Location, error) {
 	return s.repo.FindByName(name)
 }
 
+func (s *LocationService) GetLocationByID(id string) (*domain.Location, error) {
+	return s.repo.FindByID(id)
+}
+
 func (s *LocationService) GetAllLocations() ([]*domain.Location, error) {
 	return s.repo.FindAll()
 }
@@ -63,29 +65,5 @@ func (s *LocationService) DeleteLocation(name string) error {
 }
 
 func (s *LocationService) FindNearest(latitude, longitude float64) (*domain.Location, float64, error) {
-	locations, err := s.repo.FindAll()
-	if err != nil {
-		return nil, 0, err
-	}
-
-	if len(locations) == 0 {
-		return nil, 0, domain.ErrLocationNotFound
-	}
-
-	var nearest *domain.Location
-	minDistance := math.MaxFloat64
-
-	for _, location := range locations {
-		distance := geospatial.HaversineDistance(
-			geospatial.Coordinate{Latitude: latitude, Longitude: longitude},
-			geospatial.Coordinate{Latitude: location.Latitude, Longitude: location.Longitude},
-		)
-
-		if distance < minDistance {
-			minDistance = distance
-			nearest = location
-		}
-	}
-
-	return nearest, minDistance, nil
+	return s.repo.FindNearest(latitude, longitude)
 }

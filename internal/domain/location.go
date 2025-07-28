@@ -55,13 +55,16 @@ func formatCoordinate(coord float64) string {
 type LocationRepository interface {
 	Save(location *Location) error
 	FindByName(name string) (*Location, error)
+	FindByID(id string) (*Location, error)
 	FindAll() ([]*Location, error)
 	Delete(name string) error
+	FindNearest(latitude, longitude float64) (*Location, float64, error)
 }
 
 type LocationService interface {
 	CreateLocation(name string, latitude, longitude float64) (*Location, error)
 	GetLocation(name string) (*Location, error)
+	GetLocationByID(id string) (*Location, error)
 	GetAllLocations() ([]*Location, error)
 	DeleteLocation(name string) error
 	FindNearest(latitude, longitude float64) (*Location, float64, error)

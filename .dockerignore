@@ -1,0 +1,9 @@
+.git
+.gitignore
+.github
+*.md
+Dockerfile
+docker-compose.yml
+.env
+.air.toml
+Makefile

@@ -7,8 +7,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/humatest"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/jesuloba-world/leeta-task/internal/dto"
 	"github.com/jesuloba-world/leeta-task/internal/repository/memory"
@@ -37,14 +35,24 @@ func TestCreateLocation(t *testing.T) {
 
 	resp := api.Post("/locations", locationReq)
 
-	assert.Equal(t, http.StatusCreated, resp.Code)
+	if resp.Code != http.StatusCreated {
+		t.Errorf("Expected status %d, got %d", http.StatusCreated, resp.Code)
+	}
 
 	var response map[string]interface{}
 	err := json.Unmarshal(resp.Body.Bytes(), &response)
-	require.NoError(t, err)
-	assert.Equal(t, "New York", response["name"])
-	assert.Equal(t, 40.7128, response["latitude"])
-	assert.Equal(t, -74.0060, response["longitude"])
+	if err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+	if response["name"] != "New York" {
+		t.Errorf("Expected name 'New York', got %v", response["name"])
+	}
+	if response["latitude"] != 40.7128 {
+		t.Errorf("Expected latitude 40.7128, got %v", response["latitude"])
+	}
+	if response["longitude"] != -74.0060 {
+		t.Errorf("Expected longitude -74.0060, got %v", response["longitude"])
+	}
 }
 
 func TestCreateLocationDuplicate(t *testing.T) {
@@ -58,11 +66,15 @@ func TestCreateLocationDuplicate(t *testing.T) {
 
 	// Create first location
 	resp1 := api.Post("/locations", locationReq)
-	assert.Equal(t, http.StatusCreated, resp1.Code)
+	if resp1.Code != http.StatusCreated {
+		t.Errorf("Expected status %d, got %d", http.StatusCreated, resp1.Code)
+	}
 
 	// Try to create duplicate
 	resp2 := api.Post("/locations", locationReq)
-	assert.Equal(t, http.StatusConflict, resp2.Code)
+	if resp2.Code != http.StatusConflict {
+		t.Errorf("Expected status %d, got %d", http.StatusConflict, resp2.Code)
+	}
 }
 
 func TestGetAllLocations(t *testing.T) {
@@ -86,13 +98,19 @@ func TestGetAllLocations(t *testing.T) {
 
 	// Get all locations
 	resp := api.Get("/locations")
-	assert.Equal(t, http.StatusOK, resp.Code)
+	if resp.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, resp.Code)
+	}
 
 	var response map[string]interface{}
 	err := json.Unmarshal(resp.Body.Bytes(), &response)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
 	locations := response["locations"].([]interface{})
-	assert.Len(t, locations, 2)
+	if len(locations) != 2 {
+		t.Errorf("Expected 2 locations, got %d", len(locations))
+	}
 }
 
 func TestDeleteLocation(t *testing.T) {
@@ -106,28 +124,41 @@ func TestDeleteLocation(t *testing.T) {
 
 	// Create location
 	resp1 := api.Post("/locations", locationReq)
-	assert.Equal(t, http.StatusCreated, resp1.Code)
+	if resp1.Code != http.StatusCreated {
+		t.Errorf("Expected status %d, got %d", http.StatusCreated, resp1.Code)
+	}
 
-	// Delete location
+	// Delete location by name
 	resp2 := api.Delete("/locations/To Delete")
-	assert.Equal(t, http.StatusNoContent, resp2.Code)
+	if resp2.Code != http.StatusNoContent {
+		t.Errorf("Expected status %d, got %d", http.StatusNoContent, resp2.Code)
+	}
 
 	// Verify deletion
 	resp3 := api.Get("/locations")
-	assert.Equal(t, http.StatusOK, resp3.Code)
+	if resp3.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, resp3.Code)
+	}
 
 	var response map[string]interface{}
 	err := json.Unmarshal(resp3.Body.Bytes(), &response)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
 	locations := response["locations"].([]interface{})
-	assert.Len(t, locations, 0)
+	if len(locations) != 0 {
+		t.Errorf("Expected 0 locations, got %d", len(locations))
+	}
 }
 
 func TestDeleteLocationNotFound(t *testing.T) {
 	api, _ := setupTestAPI(t)
 
-	resp := api.Delete("/locations/NonExistent")
-	assert.Equal(t, http.StatusNotFound, resp.Code)
+	// Use a non-existent name
+	resp := api.Delete("/locations/non-existent-location")
+	if resp.Code != http.StatusNotFound {
+		t.Errorf("Expected status %d, got %d", http.StatusNotFound, resp.Code)
+	}
 }
 
 func TestFindNearest(t *testing.T) {
@@ -151,30 +182,42 @@ func TestFindNearest(t *testing.T) {
 
 	// Find nearest to a point closer to New York
 	resp := api.Get("/nearest?lat=40.7589&lng=-73.9851")
-	assert.Equal(t, http.StatusOK, resp.Code)
+	if resp.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, resp.Code)
+	}
 
 	var response map[string]interface{}
 	err := json.Unmarshal(resp.Body.Bytes(), &response)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
 	location := response["location"].(map[string]interface{})
-	assert.Equal(t, "New York", location["name"])
+	if location["name"] != "New York" {
+		t.Errorf("Expected location name 'New York', got %v", location["name"])
+	}
 }
 
 func TestFindNearestMissingParams(t *testing.T) {
 	api, _ := setupTestAPI(t)
 
 	resp := api.Get("/nearest?lat=40.7589")
-	assert.Equal(t, http.StatusUnprocessableEntity, resp.Code)
+	if resp.Code != http.StatusUnprocessableEntity {
+		t.Errorf("Expected status %d, got %d", http.StatusUnprocessableEntity, resp.Code)
+	}
 
 	resp = api.Get("/nearest?lng=-73.9851")
-	assert.Equal(t, http.StatusUnprocessableEntity, resp.Code)
+	if resp.Code != http.StatusUnprocessableEntity {
+		t.Errorf("Expected status %d, got %d", http.StatusUnprocessableEntity, resp.Code)
+	}
 }
 
 func TestFindNearestNoLocations(t *testing.T) {
 	api, _ := setupTestAPI(t)
 
 	resp := api.Get("/nearest?lat=40.7589&lng=-73.9851")
-	assert.Equal(t, http.StatusInternalServerError, resp.Code)
+	if resp.Code != http.StatusInternalServerError {
+		t.Errorf("Expected status %d, got %d", http.StatusInternalServerError, resp.Code)
+	}
 }
 
 func TestCreateLocationInvalidData(t *testing.T) {
@@ -217,7 +260,9 @@ func TestCreateLocationInvalidData(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			resp := api.Post("/locations", tt.request)
-			assert.Equal(t, tt.expected, resp.Code)
+			if resp.Code != tt.expected {
+				t.Errorf("Expected status %d, got %d", tt.expected, resp.Code)
+			}
 		})
 	}
 }

@@ -13,13 +13,14 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 
-	"github.com/jesuloba-world/leeta-task/config"
+	"github.com/jesuloba-world/leeta-task/internal/config"
 	"github.com/jesuloba-world/leeta-task/internal/handlers"
-	"github.com/jesuloba-world/leeta-task/internal/repository/memory"
+	"github.com/jesuloba-world/leeta-task/internal/repository"
 	"github.com/jesuloba-world/leeta-task/internal/service"
 )
 
 func main() {
+	// Load configuration from environment
 	cfg := config.LoadConfig()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
@@ -28,10 +29,16 @@ func main() {
 	slog.SetDefault(logger)
 
 	// Initialize repository
-	repo := memory.NewInMemoryLocationRepository()
+	locationRepo, cleanup, err := repository.NewRepositoryFromConfig(cfg)
+	if err != nil {
+		slog.Error("Failed to initialize repository", "error", err)
+		os.Exit(1)
+	}
+
+	slog.Info("Repository initialized", "type", cfg.Storage)
 
 	// Initialize service
-	locationService := service.NewLocationService(repo)
+	locationService := service.NewLocationService(locationRepo)
 
 	// Initialize handlers
 	locationHandler := handlers.NewLocationHandler(locationService)
@@ -41,13 +48,14 @@ func main() {
 	mux := http.NewServeMux()
 
 	// Create Huma API configuration
-	config := huma.DefaultConfig("Location API", "1.0.0")
+	config := huma.DefaultConfig("Leeta Location API", "1.0.0")
 	config.Info.Description = "A RESTful API for managing geolocated stations with nearest location search capabilities"
 	config.Info.Contact = &huma.Contact{
-		Name: "Location API Team",
+		Name:  "Jesuloba John Abere",
+		Email: "jesulobajohn@gmail.com",
 	}
 	config.Servers = []*huma.Server{
-		{URL: fmt.Sprintf("http://localhost:%s", cfg.Server.Port), Description: "Development server"},
+		{URL: fmt.Sprintf("http://localhost:%d", cfg.Server.Port), Description: "Development server"},
 	}
 
 	// Create Huma API with humago adapter
@@ -58,17 +66,17 @@ func main() {
 	locationHandler.RegisterRoutes(api)
 
 	server := &http.Server{
-		Addr:         ":" + cfg.Server.Port,
+		Addr:         fmt.Sprintf(":%d", cfg.Server.Port),
 		Handler:      mux,
-		ReadTimeout:  cfg.Server.ReadTimeout,
-		WriteTimeout: cfg.Server.WriteTimeout,
-		IdleTimeout:  cfg.Server.IdleTimeout,
+		ReadTimeout:  time.Duration(cfg.Server.ReadTimeout) * time.Second,
+		WriteTimeout: time.Duration(cfg.Server.WriteTimeout) * time.Second,
+		IdleTimeout:  time.Duration(cfg.Server.IdleTimeout) * time.Second,
 	}
 
 	go func() {
 		slog.Info("Starting server", "port", cfg.Server.Port)
-		slog.Info("API Documentation available", "url", fmt.Sprintf("http://localhost:%s/docs", cfg.Server.Port))
-		slog.Info("OpenAPI JSON available", "url", fmt.Sprintf("http://localhost:%s/openapi.json", cfg.Server.Port))
+		slog.Info("API Documentation available", "url", fmt.Sprintf("http://localhost:%d/docs", cfg.Server.Port))
+		slog.Info("OpenAPI JSON available", "url", fmt.Sprintf("http://localhost:%d/openapi.json", cfg.Server.Port))
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("Server failed to start", "error", err)
 			os.Exit(1)
@@ -86,8 +94,12 @@ func main() {
 
 	if err := server.Shutdown(ctx); err != nil {
 		slog.Error("Server forced to shutdown", "error", err)
-		os.Exit(1)
 	}
 
-	slog.Info("Server exited")
+	// Cleanup database connection
+	if err := cleanup(); err != nil {
+		slog.Error("Failed to cleanup database connection", "error", err)
+	}
+
+	slog.Info("Server shutdown complete")
 }

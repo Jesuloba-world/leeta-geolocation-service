@@ -82,7 +82,7 @@ func (h *LocationHandler) RegisterRoutes(api huma.API) {
 		Method:        http.MethodDelete,
 		Path:          "/locations/{name}",
 		Summary:       "Delete Location",
-		Description:   "Delete a location by its unique name",
+		Description:   "Delete a location by its name",
 		Tags:          []string{"Locations"},
 		DefaultStatus: http.StatusNoContent,
 	}, h.DeleteLocation)

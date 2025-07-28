@@ -7,8 +7,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/humatest"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func setupHealthTestAPI(t *testing.T) humatest.TestAPI {
@@ -25,10 +23,16 @@ func TestHealthCheck(t *testing.T) {
 
 	resp := api.Get("/health")
 
-	assert.Equal(t, http.StatusOK, resp.Code)
+	if resp.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, resp.Code)
+	}
 
 	var response map[string]interface{}
 	err := json.Unmarshal(resp.Body.Bytes(), &response)
-	require.NoError(t, err)
-	assert.Equal(t, "ok", response["status"])
+	if err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+	if response["status"] != "ok" {
+		t.Errorf("Expected status 'ok', got %v", response["status"])
+	}
 }
