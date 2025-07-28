@@ -10,6 +10,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humago"
+
 	"github.com/jesuloba-world/leeta-task/config"
 	"github.com/jesuloba-world/leeta-task/internal/handlers"
 	"github.com/jesuloba-world/leeta-task/internal/repository/memory"
@@ -32,30 +35,27 @@ func main() {
 
 	// Initialize handlers
 	locationHandler := handlers.NewLocationHandler(locationService)
+	healthHandler := handlers.NewHealthHandler()
 
+	// Create ServeMux
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", healthHandler)
 
-	// Register location routes
-	mux.HandleFunc("/locations", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			locationHandler.CreateLocation(w, r)
-		case http.MethodGet:
-			locationHandler.GetAllLocations(w, r)
-		case http.MethodDelete:
-			// Handle DELETE /locations/{name}
-			if len(r.URL.Path) > len("/locations/") {
-				locationHandler.DeleteLocation(w, r)
-				return
-			}
-			w.WriteHeader(http.StatusMethodNotAllowed)
-		default:
-			w.WriteHeader(http.StatusMethodNotAllowed)
-		}
-	})
+	// Create Huma API configuration
+	config := huma.DefaultConfig("Location API", "1.0.0")
+	config.Info.Description = "A RESTful API for managing geolocated stations with nearest location search capabilities"
+	config.Info.Contact = &huma.Contact{
+		Name: "Location API Team",
+	}
+	config.Servers = []*huma.Server{
+		{URL: fmt.Sprintf("http://localhost:%s", cfg.Server.Port), Description: "Development server"},
+	}
 
-	mux.HandleFunc("/nearest", locationHandler.FindNearest)
+	// Create Huma API with humago adapter
+	api := humago.New(mux, config)
+
+	// Register all routes with Huma
+	healthHandler.RegisterRoutes(api)
+	locationHandler.RegisterRoutes(api)
 
 	server := &http.Server{
 		Addr:         ":" + cfg.Server.Port,
@@ -67,6 +67,8 @@ func main() {
 
 	go func() {
 		slog.Info("Starting server", "port", cfg.Server.Port)
+		slog.Info("API Documentation available", "url", fmt.Sprintf("http://localhost:%s/docs", cfg.Server.Port))
+		slog.Info("OpenAPI JSON available", "url", fmt.Sprintf("http://localhost:%s/openapi.json", cfg.Server.Port))
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("Server failed to start", "error", err)
 			os.Exit(1)
@@ -88,10 +90,4 @@ func main() {
 	}
 
 	slog.Info("Server exited")
-}
-
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, `{"status":"ok"}`)
 }

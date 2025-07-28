@@ -1,388 +1,223 @@
 package handlers
 
 import (
-	"bytes"
 	"encoding/json"
-	"errors"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
-	"github.com/jesuloba-world/leeta-task/internal/domain"
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/humatest"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/jesuloba-world/leeta-task/internal/dto"
+	"github.com/jesuloba-world/leeta-task/internal/repository/memory"
+	"github.com/jesuloba-world/leeta-task/internal/service"
 )
 
-// MockLocationService implements the LocationService interface for testing
-type MockLocationService struct {
-	locations map[string]*domain.Location
-	createError error
-	getAllError error
-	deleteError error
-	findNearestError error
-}
+func setupTestAPI(t *testing.T) (humatest.TestAPI, *LocationHandler) {
+	repo := memory.NewInMemoryLocationRepository()
+	locationService := service.NewLocationService(repo)
+	locationHandler := NewLocationHandler(locationService)
 
-func NewMockLocationService() *MockLocationService {
-	return &MockLocationService{
-		locations: make(map[string]*domain.Location),
-	}
-}
+	_, api := humatest.New(t, huma.DefaultConfig("Test API", "1.0.0"))
+	locationHandler.RegisterRoutes(api)
 
-func (m *MockLocationService) CreateLocation(name string, latitude, longitude float64) (*domain.Location, error) {
-	if m.createError != nil {
-		return nil, m.createError
-	}
-	if _, exists := m.locations[name]; exists {
-		return nil, errors.New("location already exists")
-	}
-	location, err := domain.NewLocation(name, latitude, longitude)
-	if err != nil {
-		return nil, err
-	}
-	m.locations[name] = location
-	return location, nil
-}
-
-func (m *MockLocationService) GetLocation(name string) (*domain.Location, error) {
-	location, exists := m.locations[name]
-	if !exists {
-		return nil, errors.New("location not found")
-	}
-	return location, nil
-}
-
-func (m *MockLocationService) GetAllLocations() ([]*domain.Location, error) {
-	if m.getAllError != nil {
-		return nil, m.getAllError
-	}
-	locations := make([]*domain.Location, 0, len(m.locations))
-	for _, location := range m.locations {
-		locations = append(locations, location)
-	}
-	return locations, nil
-}
-
-func (m *MockLocationService) DeleteLocation(name string) error {
-	if m.deleteError != nil {
-		return m.deleteError
-	}
-	if _, exists := m.locations[name]; !exists {
-		return errors.New("location not found")
-	}
-	delete(m.locations, name)
-	return nil
-}
-
-func (m *MockLocationService) FindNearest(lat, lng float64) (*domain.Location, float64, error) {
-	if m.findNearestError != nil {
-		return nil, 0, m.findNearestError
-	}
-	if len(m.locations) == 0 {
-		return nil, 0, errors.New("no locations available")
-	}
-	// Return the first location with a mock distance
-	for _, location := range m.locations {
-		return location, 10.5, nil
-	}
-	return nil, 0, errors.New("no locations available")
+	return api, locationHandler
 }
 
 func TestCreateLocation(t *testing.T) {
-	tests := []struct {
-		name           string
-		method         string
-		body           string
-		expectedStatus int
-		setupMock      func(*MockLocationService)
-	}{
-		{
-			name:           "Valid location creation",
-			method:         "POST",
-			body:           `{"name":"Test Location","latitude":40.7128,"longitude":-74.0060}`,
-			expectedStatus: http.StatusCreated,
-			setupMock:      func(m *MockLocationService) {},
-		},
-		{
-			name:           "Invalid method",
-			method:         "GET",
-			body:           `{"name":"Test Location","latitude":40.7128,"longitude":-74.0060}`,
-			expectedStatus: http.StatusBadRequest,
-			setupMock:      func(m *MockLocationService) {},
-		},
-		{
-			name:           "Invalid JSON body",
-			method:         "POST",
-			body:           `{"invalid":"json"}`,
-			expectedStatus: http.StatusBadRequest,
-			setupMock:      func(m *MockLocationService) {},
-		},
-		{
-			name:           "Duplicate location",
-			method:         "POST",
-			body:           `{"name":"Existing Location","latitude":40.7128,"longitude":-74.0060}`,
-			expectedStatus: http.StatusConflict,
-			setupMock: func(m *MockLocationService) {
-				m.createError = errors.New("location already exists")
-			},
-		},
+	api, _ := setupTestAPI(t)
+
+	locationReq := dto.LocationRequest{
+		Name:      "New York",
+		Latitude:  40.7128,
+		Longitude: -74.0060,
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockService := NewMockLocationService()
-			tt.setupMock(mockService)
-			handler := NewLocationHandler(mockService)
+	resp := api.Post("/locations", locationReq)
 
-			req := httptest.NewRequest(tt.method, "/locations", bytes.NewBufferString(tt.body))
-			w := httptest.NewRecorder()
+	assert.Equal(t, http.StatusCreated, resp.Code)
 
-			handler.CreateLocation(w, req)
+	var response map[string]interface{}
+	err := json.Unmarshal(resp.Body.Bytes(), &response)
+	require.NoError(t, err)
+	assert.Equal(t, "New York", response["name"])
+	assert.Equal(t, 40.7128, response["latitude"])
+	assert.Equal(t, -74.0060, response["longitude"])
+}
 
-			if w.Code != tt.expectedStatus {
-				t.Errorf("Expected status %d, got %d", tt.expectedStatus, w.Code)
-			}
-		})
+func TestCreateLocationDuplicate(t *testing.T) {
+	api, _ := setupTestAPI(t)
+
+	locationReq := dto.LocationRequest{
+		Name:      "New York",
+		Latitude:  40.7128,
+		Longitude: -74.0060,
 	}
+
+	// Create first location
+	resp1 := api.Post("/locations", locationReq)
+	assert.Equal(t, http.StatusCreated, resp1.Code)
+
+	// Try to create duplicate
+	resp2 := api.Post("/locations", locationReq)
+	assert.Equal(t, http.StatusConflict, resp2.Code)
 }
 
 func TestGetAllLocations(t *testing.T) {
-	tests := []struct {
-		name           string
-		method         string
-		expectedStatus int
-		setupMock      func(*MockLocationService)
-	}{
-		{
-			name:           "Valid get all locations",
-			method:         "GET",
-			expectedStatus: http.StatusOK,
-			setupMock: func(m *MockLocationService) {
-				location, _ := domain.NewLocation("Test", 40.7128, -74.0060)
-				m.locations["Test"] = location
-			},
-		},
-		{
-			name:           "Invalid method",
-			method:         "POST",
-			expectedStatus: http.StatusBadRequest,
-			setupMock:      func(m *MockLocationService) {},
-		},
-		{
-			name:           "Service error",
-			method:         "GET",
-			expectedStatus: http.StatusInternalServerError,
-			setupMock: func(m *MockLocationService) {
-				m.getAllError = errors.New("service error")
-			},
-		},
+	api, _ := setupTestAPI(t)
+
+	locationReq1 := dto.LocationRequest{
+		Name:      "New York",
+		Latitude:  40.7128,
+		Longitude: -74.0060,
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockService := NewMockLocationService()
-			tt.setupMock(mockService)
-			handler := NewLocationHandler(mockService)
-
-			req := httptest.NewRequest(tt.method, "/locations", nil)
-			w := httptest.NewRecorder()
-
-			handler.GetAllLocations(w, req)
-
-			if w.Code != tt.expectedStatus {
-				t.Errorf("Expected status %d, got %d", tt.expectedStatus, w.Code)
-			}
-		})
+	locationReq2 := dto.LocationRequest{
+		Name:      "Los Angeles",
+		Latitude:  34.0522,
+		Longitude: -118.2437,
 	}
+
+	// Create locations
+	api.Post("/locations", locationReq1)
+	api.Post("/locations", locationReq2)
+
+	// Get all locations
+	resp := api.Get("/locations")
+	assert.Equal(t, http.StatusOK, resp.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(resp.Body.Bytes(), &response)
+	require.NoError(t, err)
+	locations := response["locations"].([]interface{})
+	assert.Len(t, locations, 2)
 }
 
 func TestDeleteLocation(t *testing.T) {
-	tests := []struct {
-		name           string
-		method         string
-		path           string
-		expectedStatus int
-		setupMock      func(*MockLocationService)
-	}{
-		{
-			name:           "Valid location deletion",
-			method:         "DELETE",
-			path:           "/locations/test",
-			expectedStatus: http.StatusNoContent,
-			setupMock: func(m *MockLocationService) {
-				location, _ := domain.NewLocation("test", 40.7128, -74.0060)
-				m.locations["test"] = location
-			},
-		},
-		{
-			name:           "Invalid method",
-			method:         "GET",
-			path:           "/locations/test",
-			expectedStatus: http.StatusBadRequest,
-			setupMock:      func(m *MockLocationService) {},
-		},
-		{
-			name:           "Invalid path",
-			method:         "DELETE",
-			path:           "/locations",
-			expectedStatus: http.StatusBadRequest,
-			setupMock:      func(m *MockLocationService) {},
-		},
-		{
-			name:           "Location not found",
-			method:         "DELETE",
-			path:           "/locations/nonexistent",
-			expectedStatus: http.StatusNotFound,
-			setupMock: func(m *MockLocationService) {
-				m.deleteError = errors.New("location not found")
-			},
-		},
+	api, _ := setupTestAPI(t)
+
+	locationReq := dto.LocationRequest{
+		Name:      "To Delete",
+		Latitude:  40.7128,
+		Longitude: -74.0060,
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockService := NewMockLocationService()
-			tt.setupMock(mockService)
-			handler := NewLocationHandler(mockService)
+	// Create location
+	resp1 := api.Post("/locations", locationReq)
+	assert.Equal(t, http.StatusCreated, resp1.Code)
 
-			req := httptest.NewRequest(tt.method, tt.path, nil)
-			w := httptest.NewRecorder()
+	// Delete location
+	resp2 := api.Delete("/locations/To Delete")
+	assert.Equal(t, http.StatusNoContent, resp2.Code)
 
-			handler.DeleteLocation(w, req)
+	// Verify deletion
+	resp3 := api.Get("/locations")
+	assert.Equal(t, http.StatusOK, resp3.Code)
 
-			if w.Code != tt.expectedStatus {
-				t.Errorf("Expected status %d, got %d", tt.expectedStatus, w.Code)
-			}
-		})
-	}
+	var response map[string]interface{}
+	err := json.Unmarshal(resp3.Body.Bytes(), &response)
+	require.NoError(t, err)
+	locations := response["locations"].([]interface{})
+	assert.Len(t, locations, 0)
+}
+
+func TestDeleteLocationNotFound(t *testing.T) {
+	api, _ := setupTestAPI(t)
+
+	resp := api.Delete("/locations/NonExistent")
+	assert.Equal(t, http.StatusNotFound, resp.Code)
 }
 
 func TestFindNearest(t *testing.T) {
+	api, _ := setupTestAPI(t)
+
+	locationReq1 := dto.LocationRequest{
+		Name:      "New York",
+		Latitude:  40.7128,
+		Longitude: -74.0060,
+	}
+
+	locationReq2 := dto.LocationRequest{
+		Name:      "Los Angeles",
+		Latitude:  34.0522,
+		Longitude: -118.2437,
+	}
+
+	// Create locations
+	api.Post("/locations", locationReq1)
+	api.Post("/locations", locationReq2)
+
+	// Find nearest to a point closer to New York
+	resp := api.Get("/nearest?lat=40.7589&lng=-73.9851")
+	assert.Equal(t, http.StatusOK, resp.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(resp.Body.Bytes(), &response)
+	require.NoError(t, err)
+	location := response["location"].(map[string]interface{})
+	assert.Equal(t, "New York", location["name"])
+}
+
+func TestFindNearestMissingParams(t *testing.T) {
+	api, _ := setupTestAPI(t)
+
+	resp := api.Get("/nearest?lat=40.7589")
+	assert.Equal(t, http.StatusUnprocessableEntity, resp.Code)
+
+	resp = api.Get("/nearest?lng=-73.9851")
+	assert.Equal(t, http.StatusUnprocessableEntity, resp.Code)
+}
+
+func TestFindNearestNoLocations(t *testing.T) {
+	api, _ := setupTestAPI(t)
+
+	resp := api.Get("/nearest?lat=40.7589&lng=-73.9851")
+	assert.Equal(t, http.StatusInternalServerError, resp.Code)
+}
+
+func TestCreateLocationInvalidData(t *testing.T) {
+	api, _ := setupTestAPI(t)
+
 	tests := []struct {
-		name           string
-		method         string
-		path           string
-		expectedStatus int
-		setupMock      func(*MockLocationService)
+		name     string
+		request  dto.LocationRequest
+		expected int
 	}{
 		{
-			name:           "Valid find nearest",
-			method:         "GET",
-			path:           "/nearest?lat=40.7128&lng=-74.0060",
-			expectedStatus: http.StatusOK,
-			setupMock: func(m *MockLocationService) {
-				location, _ := domain.NewLocation("test", 40.7128, -74.0060)
-				m.locations["test"] = location
+			name: "empty name",
+			request: dto.LocationRequest{
+				Name:      "",
+				Latitude:  40.7128,
+				Longitude: -74.0060,
 			},
+			expected: 400,
 		},
 		{
-			name:           "Invalid method",
-			method:         "POST",
-			path:           "/nearest?lat=40.7128&lng=-74.0060",
-			expectedStatus: http.StatusBadRequest,
-			setupMock:      func(m *MockLocationService) {},
-		},
-		{
-			name:           "Missing latitude",
-			method:         "GET",
-			path:           "/nearest?lng=-74.0060",
-			expectedStatus: http.StatusBadRequest,
-			setupMock:      func(m *MockLocationService) {},
-		},
-		{
-			name:           "Missing longitude",
-			method:         "GET",
-			path:           "/nearest?lat=40.7128",
-			expectedStatus: http.StatusBadRequest,
-			setupMock:      func(m *MockLocationService) {},
-		},
-		{
-			name:           "Invalid latitude",
-			method:         "GET",
-			path:           "/nearest?lat=invalid&lng=-74.0060",
-			expectedStatus: http.StatusBadRequest,
-			setupMock:      func(m *MockLocationService) {},
-		},
-		{
-			name:           "Invalid longitude",
-			method:         "GET",
-			path:           "/nearest?lat=40.7128&lng=invalid",
-			expectedStatus: http.StatusBadRequest,
-			setupMock:      func(m *MockLocationService) {},
-		},
-		{
-			name:           "No locations available",
-			method:         "GET",
-			path:           "/nearest?lat=40.7128&lng=-74.0060",
-			expectedStatus: http.StatusNotFound,
-			setupMock: func(m *MockLocationService) {
-				m.findNearestError = errors.New("no locations available")
+			name: "invalid_latitude",
+			request: dto.LocationRequest{
+				Name:      "Invalid Lat",
+				Latitude:  91.0,
+				Longitude: -74.0060,
 			},
+			expected: 400,
+		},
+		{
+			name: "invalid_longitude",
+			request: dto.LocationRequest{
+				Name:      "Invalid Lng",
+				Latitude:  40.7128,
+				Longitude: -181.0,
+			},
+			expected: 400,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockService := NewMockLocationService()
-			tt.setupMock(mockService)
-			handler := NewLocationHandler(mockService)
-
-			req := httptest.NewRequest(tt.method, tt.path, nil)
-			w := httptest.NewRecorder()
-
-			handler.FindNearest(w, req)
-
-			if w.Code != tt.expectedStatus {
-				t.Errorf("Expected status %d, got %d", tt.expectedStatus, w.Code)
-			}
+			resp := api.Post("/locations", tt.request)
+			assert.Equal(t, tt.expected, resp.Code)
 		})
-	}
-}
-
-func TestLocationHandlerIntegration(t *testing.T) {
-	mockService := NewMockLocationService()
-	handler := NewLocationHandler(mockService)
-
-	// Test creating a location
-	createBody := `{"name":"NYC","latitude":40.7128,"longitude":-74.0060}`
-	createReq := httptest.NewRequest("POST", "/locations", bytes.NewBufferString(createBody))
-	createW := httptest.NewRecorder()
-	handler.CreateLocation(createW, createReq)
-
-	if createW.Code != http.StatusCreated {
-		t.Errorf("Expected status %d for create, got %d", http.StatusCreated, createW.Code)
-	}
-
-	// Test getting all locations
-	getAllReq := httptest.NewRequest("GET", "/locations", nil)
-	getAllW := httptest.NewRecorder()
-	handler.GetAllLocations(getAllW, getAllReq)
-
-	if getAllW.Code != http.StatusOK {
-		t.Errorf("Expected status %d for get all, got %d", http.StatusOK, getAllW.Code)
-	}
-
-	var locations []*domain.Location
-	if err := json.NewDecoder(getAllW.Body).Decode(&locations); err != nil {
-		t.Errorf("Failed to decode locations: %v", err)
-	}
-
-	if len(locations) != 1 {
-		t.Errorf("Expected 1 location, got %d", len(locations))
-	}
-
-	// Test finding nearest location
-	nearestReq := httptest.NewRequest("GET", "/nearest?lat=40.7128&lng=-74.0060", nil)
-	nearestW := httptest.NewRecorder()
-	handler.FindNearest(nearestW, nearestReq)
-
-	if nearestW.Code != http.StatusOK {
-		t.Errorf("Expected status %d for find nearest, got %d", http.StatusOK, nearestW.Code)
-	}
-
-	// Test deleting the location
-	deleteReq := httptest.NewRequest("DELETE", "/locations/NYC", nil)
-	deleteW := httptest.NewRecorder()
-	handler.DeleteLocation(deleteW, deleteReq)
-
-	if deleteW.Code != http.StatusNoContent {
-		t.Errorf("Expected status %d for delete, got %d", http.StatusNoContent, deleteW.Code)
 	}
 }

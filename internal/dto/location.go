@@ -8,9 +8,9 @@ import (
 )
 
 type LocationRequest struct {
-	Name      string  `json:"name" binding:"required" validate:"required,min=1"`
-	Latitude  float64 `json:"latitude" binding:"required" validate:"required,min=-90,max=90"`
-	Longitude float64 `json:"longitude" binding:"required" validate:"required,min=-180,max=180"`
+	Name      string  `json:"name" validate:"required,min=1"`
+	Latitude  float64 `json:"latitude" validate:"required,min=-90,max=90"`
+	Longitude float64 `json:"longitude" validate:"required,min=-180,max=180"`
 }
 
 type LocationResponse struct {

@@ -1,143 +1,154 @@
 package handlers
 
 import (
-	"encoding/json"
+	"context"
 	"net/http"
-	"strconv"
 	"strings"
 
+	"github.com/danielgtaylor/huma/v2"
+
 	"github.com/jesuloba-world/leeta-task/internal/domain"
-	"github.com/jesuloba-world/leeta-task/pkg/errors"
+	"github.com/jesuloba-world/leeta-task/internal/dto"
 )
 
+// LocationRequest represents the request body for creating a location
+type LocationRequest struct {
+	Body dto.LocationRequest `json:"body"`
+}
+
+// LocationResponse represents a location response
+type LocationResponse struct {
+	Body dto.LocationResponse `json:"body"`
+}
+
+// LocationListResponse represents a list of locations
+type LocationListResponse struct {
+	Body dto.LocationListResponse `json:"body"`
+}
+
+// NearestLocationRequest represents the query parameters for finding nearest location
+type NearestLocationRequest struct {
+	Lat float64 `query:"lat" required:"true" minimum:"-90" maximum:"90" doc:"Latitude coordinate"`
+	Lng float64 `query:"lng" required:"true" minimum:"-180" maximum:"180" doc:"Longitude coordinate"`
+}
+
+// NearestLocationResponse represents the nearest location response
+type NearestLocationResponse struct {
+	Body dto.NearestLocationResponse `json:"body"`
+}
+
+// DeleteLocationRequest represents the path parameter for deleting a location
+type DeleteLocationRequest struct {
+	Name string `path:"name" required:"true" doc:"Name of the location to delete"`
+}
+
+// HealthResponse represents the health check response
+// LocationHandler wraps the location service for API operations
 type LocationHandler struct {
 	service domain.LocationService
 }
 
+// NewLocationHandler creates a new location handler
 func NewLocationHandler(service domain.LocationService) *LocationHandler {
 	return &LocationHandler{service: service}
 }
 
+// RegisterRoutes registers all location routes with the Huma API
+func (h *LocationHandler) RegisterRoutes(api huma.API) {
+	// Create location endpoint
+	huma.Register(api, huma.Operation{
+		OperationID:   "create-location",
+		Method:        http.MethodPost,
+		Path:          "/locations",
+		Summary:       "Create Location",
+		Description:   "Register a new geolocated station with latitude and longitude coordinates",
+		Tags:          []string{"Locations"},
+		DefaultStatus: http.StatusCreated,
+	}, h.CreateLocation)
+
+	// Get all locations endpoint
+	huma.Register(api, huma.Operation{
+		OperationID: "get-locations",
+		Method:      http.MethodGet,
+		Path:        "/locations",
+		Summary:     "Get All Locations",
+		Description: "Retrieve all registered locations",
+		Tags:        []string{"Locations"},
+	}, h.GetAllLocations)
+
+	// Delete location endpoint
+	huma.Register(api, huma.Operation{
+		OperationID:   "delete-location",
+		Method:        http.MethodDelete,
+		Path:          "/locations/{name}",
+		Summary:       "Delete Location",
+		Description:   "Delete a location by its unique name",
+		Tags:          []string{"Locations"},
+		DefaultStatus: http.StatusNoContent,
+	}, h.DeleteLocation)
+
+	// Find nearest location endpoint
+	huma.Register(api, huma.Operation{
+		OperationID: "find-nearest",
+		Method:      http.MethodGet,
+		Path:        "/nearest",
+		Summary:     "Find Nearest Location",
+		Description: "Find the closest registered location to the given coordinates",
+		Tags:        []string{"Locations"},
+	}, h.FindNearest)
+}
+
 // CreateLocation handles POST /locations requests
-func (h *LocationHandler) CreateLocation(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		errors.RespondWithError(w, errors.BadRequest("Method not allowed"))
-		return
-	}
-
-	var location domain.Location
-	if err := json.NewDecoder(r.Body).Decode(&location); err != nil {
-		errors.RespondWithError(w, errors.BadRequest("Invalid request body"))
-		return
-	}
-
-	createdLocation, err := h.service.CreateLocation(location.Name, location.Latitude, location.Longitude)
+func (h *LocationHandler) CreateLocation(ctx context.Context, input *LocationRequest) (*LocationResponse, error) {
+	createdLocation, err := h.service.CreateLocation(input.Body.Name, input.Body.Latitude, input.Body.Longitude)
 	if err != nil {
 		if strings.Contains(err.Error(), "already exists") {
-			errors.RespondWithError(w, errors.Conflict(err.Error()))
-			return
+			return nil, huma.Error409Conflict("Location with this name already exists")
 		}
-		errors.RespondWithError(w, errors.BadRequest(err.Error()))
-		return
+		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(createdLocation)
+	return &LocationResponse{
+		Body: dto.FromDomain(createdLocation),
+	}, nil
 }
 
 // GetAllLocations handles GET /locations requests
-func (h *LocationHandler) GetAllLocations(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		errors.RespondWithError(w, errors.BadRequest("Method not allowed"))
-		return
-	}
-
+func (h *LocationHandler) GetAllLocations(ctx context.Context, input *struct{}) (*LocationListResponse, error) {
 	locations, err := h.service.GetAllLocations()
 	if err != nil {
-		errors.RespondWithError(w, err)
-		return
+		return nil, huma.Error500InternalServerError("Failed to retrieve locations")
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(locations)
+	return &LocationListResponse{
+		Body: dto.FromDomainList(locations),
+	}, nil
 }
 
 // DeleteLocation handles DELETE /locations/{name} requests
-func (h *LocationHandler) DeleteLocation(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		errors.RespondWithError(w, errors.BadRequest("Method not allowed"))
-		return
-	}
-
-	// Extract name from URL path
-	pathParts := strings.Split(r.URL.Path, "/")
-	if len(pathParts) < 3 {
-		errors.RespondWithError(w, errors.BadRequest("Invalid URL path"))
-		return
-	}
-
-	name := pathParts[2] // /locations/{name}
-
-	if err := h.service.DeleteLocation(name); err != nil {
+func (h *LocationHandler) DeleteLocation(ctx context.Context, input *DeleteLocationRequest) (*struct{}, error) {
+	err := h.service.DeleteLocation(input.Name)
+	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
-			errors.RespondWithError(w, errors.NotFound(err.Error()))
-			return
+			return nil, huma.Error404NotFound("Location not found")
 		}
-		errors.RespondWithError(w, err)
-		return
+		return nil, huma.Error500InternalServerError("Failed to delete location")
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	return &struct{}{}, nil
 }
 
-// FindNearest handles GET /nearest?lat=LAT&lng=LNG requests
-func (h *LocationHandler) FindNearest(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		errors.RespondWithError(w, errors.BadRequest("Method not allowed"))
-		return
-	}
-
-	// Parse query parameters
-	query := r.URL.Query()
-	latStr := query.Get("lat")
-	lngStr := query.Get("lng")
-
-	if latStr == "" || lngStr == "" {
-		errors.RespondWithError(w, errors.BadRequest("Missing lat or lng parameters"))
-		return
-	}
-
-	lat, err := strconv.ParseFloat(latStr, 64)
-	if err != nil {
-		errors.RespondWithError(w, errors.BadRequest("Invalid latitude value"))
-		return
-	}
-
-	lng, err := strconv.ParseFloat(lngStr, 64)
-	if err != nil {
-		errors.RespondWithError(w, errors.BadRequest("Invalid longitude value"))
-		return
-	}
-
-	nearestLocation, distance, err := h.service.FindNearest(lat, lng)
+// FindNearest handles GET /nearest requests
+func (h *LocationHandler) FindNearest(ctx context.Context, input *NearestLocationRequest) (*NearestLocationResponse, error) {
+	location, distance, err := h.service.FindNearest(input.Lat, input.Lng)
 	if err != nil {
 		if strings.Contains(err.Error(), "no locations") {
-			errors.RespondWithError(w, errors.NotFound(err.Error()))
-			return
+			return nil, huma.Error404NotFound("No locations found")
 		}
-		errors.RespondWithError(w, err)
-		return
+		return nil, huma.Error500InternalServerError("Failed to find nearest location")
 	}
 
-	response := struct {
-		Location *domain.Location `json:"location"`
-		Distance float64         `json:"distance_km"`
-	}{
-		Location: nearestLocation,
-		Distance: distance,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	return &NearestLocationResponse{
+		Body: dto.FromDomainWithDistance(location, distance),
+	}, nil
 }
