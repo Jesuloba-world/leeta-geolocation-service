@@ -6,6 +6,7 @@ import (
 )
 
 func TestHaversineDistance(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		p1       Coordinate
@@ -91,6 +92,7 @@ func TestHaversineDistance(t *testing.T) {
 }
 
 func TestToRadians(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		degrees  float64
@@ -140,6 +142,7 @@ func TestToRadians(t *testing.T) {
 }
 
 func TestKmToMiles(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		km       float64
@@ -177,6 +180,7 @@ func TestKmToMiles(t *testing.T) {
 }
 
 func TestKmToNauticalMiles(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		km       float64
@@ -214,6 +218,7 @@ func TestKmToNauticalMiles(t *testing.T) {
 }
 
 func TestMilesToKm(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		miles    float64
@@ -251,6 +256,7 @@ func TestMilesToKm(t *testing.T) {
 }
 
 func TestNauticalMilesToKm(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		nauticalMiles float64
@@ -288,6 +294,7 @@ func TestNauticalMilesToKm(t *testing.T) {
 }
 
 func TestHaversineDistanceMiles(t *testing.T) {
+	t.Parallel()
 	p1 := Coordinate{Latitude: 40.7128, Longitude: -74.0060}
 	p2 := Coordinate{Latitude: 34.0522, Longitude: -118.2437}
 
@@ -301,6 +308,7 @@ func TestHaversineDistanceMiles(t *testing.T) {
 }
 
 func TestHaversineDistanceNauticalMiles(t *testing.T) {
+	t.Parallel()
 	p1 := Coordinate{Latitude: 40.7128, Longitude: -74.0060}
 	p2 := Coordinate{Latitude: 34.0522, Longitude: -118.2437}
 

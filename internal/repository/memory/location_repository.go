@@ -28,6 +28,10 @@ func (r *InMemoryLocationRepository) Save(location *domain.Location) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	if location == nil {
+		return fmt.Errorf("location cannot be nil")
+	}
+
 	if _, exists := r.locations[location.Name]; exists {
 		return domain.ErrLocationExists
 	}
